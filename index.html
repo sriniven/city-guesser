@@ -945,8 +945,10 @@
       showFeedback(ARROWS[ci], band.points > 0 ? (band.label + " (+" + band.points + " so far)") : "Keep going",
         hint, band.cls);
       renderAttempts();
-      // Zoom to a ~1000-mile radius around the guess so the next try is finer.
-      map.fitBounds(guessMarker.getLatLng().toBounds(2 * 1000 * 1609.344));
+      // Zoom around the guess so the view radius is 2x the distance to the
+      // real city (keeps the target comfortably in frame). toBounds takes the
+      // full edge length, so size = 2 * radius = 4 * dist.
+      map.fitBounds(guessMarker.getLatLng().toBounds(4 * dist * 1609.344));
     }
   }
 
