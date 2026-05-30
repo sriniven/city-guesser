@@ -114,6 +114,12 @@
 
   .badge { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:700; }
 
+  #skipBtn {
+    position: absolute; bottom: 18px; right: 18px; z-index: 1100;
+    box-shadow: 0 8px 28px rgba(0,0,0,.5);
+  }
+  #skipBtn.hidden { display: none; }
+
   /* Animated reveal marker for the real city location */
   .truth-pulse { position: relative; }
   .truth-pulse .dot, .truth-pulse .ring {
@@ -205,6 +211,8 @@
       <div class="detail" id="fbDetail"></div>
     </div>
   </div>
+
+  <button id="skipBtn" class="hidden">Next →</button>
 
   <div id="overlay">
     <div class="card" id="overlayCard"></div>
@@ -746,6 +754,7 @@
   let cityScored = false; // hit top band -> auto advance
   let closestLatLng = null;       // leaflet LatLng of the nearest guess this city
   let closestDist = Infinity;     // miles of that nearest guess
+  let advanceTimer = null;        // pending reveal->next timeout
   let totalScore = 0;
   let perCity = [];       // {name, points}
   let difficulty = "famous"; // "famous" | "obscure" | "mixed"
@@ -788,7 +797,7 @@
     round: $("roundVal"), city: $("cityVal"), score: $("scoreVal"), diff: $("diffVal"),
     restart: $("restartBtn"),
     promptCity: $("promptCity"), promptAttempts: $("promptAttempts"),
-    feedback: $("feedback"), fbArrow: $("fbArrow"),
+    feedback: $("feedback"), fbArrow: $("fbArrow"), skip: $("skipBtn"),
     fbHeadline: $("fbHeadline"), fbDetail: $("fbDetail"),
     overlay: $("overlay"), card: $("overlayCard"),
   };
@@ -955,8 +964,17 @@
     }
 
     // Pause on the reveal so the running total is readable, much longer on
-    // the final city before the results screen.
-    setTimeout(nextCity, lastCity ? 30000 : 2600);
+    // the final city before the results screen. A skip button cuts it short.
+    els.skip.textContent = lastCity ? "See results →" : "Next →";
+    els.skip.classList.remove("hidden");
+    advanceTimer = setTimeout(advance, lastCity ? 30000 : 2600);
+  }
+
+  function advance() {
+    clearTimeout(advanceTimer);
+    advanceTimer = null;
+    els.skip.classList.add("hidden");
+    nextCity();
   }
 
   function nextCity() {
@@ -1019,7 +1037,12 @@
   }
 
   // ---- Wire up ----
-  els.restart.onclick = showIntro;
+  els.skip.onclick = advance;
+  els.restart.onclick = function () {
+    if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+    els.skip.classList.add("hidden");
+    showIntro();
+  };
 
   initMap();
   showIntro();
