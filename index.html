@@ -985,7 +985,7 @@
     // the final city before the results screen. A skip button cuts it short.
     els.skip.textContent = lastCity ? "See results →" : "Next →";
     els.skip.classList.remove("hidden");
-    advanceTimer = setTimeout(advance, lastCity ? 120000 : 2600);
+    advanceTimer = setTimeout(advance, lastCity ? 600000 : 2600);
   }
 
   function advance() {
