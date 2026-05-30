@@ -755,6 +755,7 @@
   let closestLatLng = null;       // leaflet LatLng of the nearest guess this city
   let closestDist = Infinity;     // miles of that nearest guess
   let advanceTimer = null;        // pending reveal->next timeout
+  let lineAnim = null;            // reveal-line draw interval
   let totalScore = 0;
   let perCity = [];       // {name, points}
   let difficulty = "famous"; // "famous" | "obscure" | "mixed"
@@ -851,9 +852,27 @@
   }
 
   function clearMapLayers() {
+    if (lineAnim) { clearInterval(lineAnim); lineAnim = null; }
     if (guessMarker) { map.removeLayer(guessMarker); guessMarker = null; }
     if (truthMarker) { map.removeLayer(truthMarker); truthMarker = null; }
     if (lineLayer) { map.removeLayer(lineLayer); lineLayer = null; }
+  }
+
+  // Draw the reveal line progressively from the closest guess to the truth.
+  function animateLine(start, end) {
+    const steps = 45;
+    let i = 0;
+    lineLayer = L.polyline([start, start], {
+      color: "#38bdf8", weight: 2.5, dashArray: "6 6",
+    }).addTo(map);
+    lineAnim = setInterval(function () {
+      i++;
+      const f = i / steps;
+      const lat = start.lat + (end.lat - start.lat) * f;
+      const lng = start.lng + (end.lng - start.lng) * f;
+      lineLayer.setLatLngs([start, [lat, lng]]);
+      if (i >= steps) { clearInterval(lineAnim); lineAnim = null; }
+    }, 22);
   }
 
   function loadCity() {
@@ -952,13 +971,12 @@
       interactive: false,
     }).addTo(map).bindTooltip(truth.name, { permanent: true, direction: "top", offset: [0, -10] });
 
-    // Draw a line from the closest guess to the real point.
+    // Animate a line from the closest guess to the real point.
     if (closestLatLng) {
       if (guessMarker) guessMarker.setLatLng(closestLatLng);
-      lineLayer = L.polyline([[closestLatLng.lat, closestLatLng.lng], [truth.lat, truth.lon]], {
-        color: "#38bdf8", weight: 2, dashArray: "6 6",
-      }).addTo(map);
-      map.fitBounds(lineLayer.getBounds().pad(0.4));
+      const end = L.latLng(truth.lat, truth.lon);
+      map.fitBounds(L.latLngBounds([closestLatLng, end]).pad(0.4));
+      animateLine(closestLatLng, end);
     } else {
       map.setView([truth.lat, truth.lon], 4);
     }
@@ -967,12 +985,13 @@
     // the final city before the results screen. A skip button cuts it short.
     els.skip.textContent = lastCity ? "See results →" : "Next →";
     els.skip.classList.remove("hidden");
-    advanceTimer = setTimeout(advance, lastCity ? 30000 : 2600);
+    advanceTimer = setTimeout(advance, lastCity ? 120000 : 2600);
   }
 
   function advance() {
     clearTimeout(advanceTimer);
     advanceTimer = null;
+    if (lineAnim) { clearInterval(lineAnim); lineAnim = null; }
     els.skip.classList.add("hidden");
     nextCity();
   }
