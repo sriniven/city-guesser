@@ -114,6 +114,27 @@
 
   .badge { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:700; }
 
+  /* Animated reveal marker for the real city location */
+  .truth-pulse { position: relative; }
+  .truth-pulse .dot, .truth-pulse .ring {
+    position: absolute; left: 0; top: 0; border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .truth-pulse .dot {
+    width: 14px; height: 14px; background: #22c55e;
+    border: 2px solid #fff; box-shadow: 0 0 6px rgba(34,197,94,.9);
+    z-index: 2;
+  }
+  .truth-pulse .ring {
+    width: 14px; height: 14px; background: rgba(34,197,94,.55);
+    animation: truthpulse 1.8s ease-out infinite;
+  }
+  .truth-pulse .ring.r2 { animation-delay: .9s; }
+  @keyframes truthpulse {
+    0%   { transform: translate(-50%, -50%) scale(1);  opacity: .8; }
+    100% { transform: translate(-50%, -50%) scale(7);  opacity: 0; }
+  }
+
   /* Modal overlay */
   #overlay {
     position: absolute; inset: 0; z-index: 2000;
@@ -723,6 +744,8 @@
   let attemptsUsed = 0;
   let cityBest = 0;       // best points this city
   let cityScored = false; // hit top band -> auto advance
+  let closestLatLng = null;       // leaflet LatLng of the nearest guess this city
+  let closestDist = Infinity;     // miles of that nearest guess
   let totalScore = 0;
   let perCity = [];       // {name, points}
   let difficulty = "famous"; // "famous" | "obscure" | "mixed"
@@ -829,6 +852,8 @@
     attemptsUsed = 0;
     cityBest = 0;
     cityScored = false;
+    closestLatLng = null;
+    closestDist = Infinity;
     hideFeedback();
 
     const c = deck[cityIndex];
@@ -866,6 +891,10 @@
     const band = pointsForDistance(dist);
     attemptsUsed++;
     cityBest = Math.max(cityBest, band.points);
+    if (dist < closestDist) {
+      closestDist = dist;
+      closestLatLng = guessMarker.getLatLng();
+    }
 
     const brng = bearing(latlng, truth);
     const ci = compassIndex(brng);
@@ -903,14 +932,21 @@
       "  ·  +" + cityBest + " this city  ·  Total: " + totalScore + " pts" +
       (lastCity ? " — last city!" : "");
 
-    // Reveal true location + line to last guess marker.
-    truthMarker = L.circleMarker([truth.lat, truth.lon], {
-      radius: 9, color: "#22c55e", weight: 3, fillColor: "#22c55e", fillOpacity: .5,
-    }).addTo(map).bindTooltip(truth.name, { permanent: true, direction: "top" });
+    // Reveal the true location as an animated pulsing marker.
+    truthMarker = L.marker([truth.lat, truth.lon], {
+      icon: L.divIcon({
+        className: "truth-pulse",
+        html: '<span class="ring"></span><span class="ring r2"></span><span class="dot"></span>',
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      }),
+      interactive: false,
+    }).addTo(map).bindTooltip(truth.name, { permanent: true, direction: "top", offset: [0, -10] });
 
-    if (guessMarker) {
-      const g = guessMarker.getLatLng();
-      lineLayer = L.polyline([[g.lat, g.lng], [truth.lat, truth.lon]], {
+    // Draw a line from the closest guess to the real point.
+    if (closestLatLng) {
+      if (guessMarker) guessMarker.setLatLng(closestLatLng);
+      lineLayer = L.polyline([[closestLatLng.lat, closestLatLng.lng], [truth.lat, truth.lon]], {
         color: "#38bdf8", weight: 2, dashArray: "6 6",
       }).addTo(map);
       map.fitBounds(lineLayer.getBounds().pad(0.4));
@@ -918,9 +954,9 @@
       map.setView([truth.lat, truth.lon], 4);
     }
 
-    // Pause on the reveal so the running total is readable, longer on the
-    // final city before the results screen.
-    setTimeout(nextCity, lastCity ? 11000 : 2600);
+    // Pause on the reveal so the running total is readable, much longer on
+    // the final city before the results screen.
+    setTimeout(nextCity, lastCity ? 30000 : 2600);
   }
 
   function nextCity() {
