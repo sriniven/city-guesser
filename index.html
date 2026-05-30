@@ -945,6 +945,8 @@
       showFeedback(ARROWS[ci], band.points > 0 ? (band.label + " (+" + band.points + " so far)") : "Keep going",
         hint, band.cls);
       renderAttempts();
+      // Zoom to a ~1000-mile radius around the guess so the next try is finer.
+      map.fitBounds(guessMarker.getLatLng().toBounds(2 * 1000 * 1609.344));
     }
   }
 
