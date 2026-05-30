@@ -992,8 +992,9 @@
     // the final city before the results screen. A skip button cuts it short.
     els.skip.textContent = lastCity ? "See results →" : "Next city →";
     els.skip.classList.remove("hidden");
-    // Wait for the click after every city's last guess; long fallback only.
-    advanceTimer = setTimeout(advance, 600000);
+    // Intermediate cities auto-advance after a few seconds (or on click);
+    // the final city waits for the click, with a long fallback.
+    advanceTimer = setTimeout(advance, lastCity ? 600000 : 5000);
   }
 
   function advance() {
