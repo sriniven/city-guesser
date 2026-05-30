@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>City Guesser — Place the City</title>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --good: #22c55e;
+    --ok: #eab308;
+    --meh: #f97316;
+    --bad: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--panel-2);
+    flex-wrap: wrap;
+  }
+  header .title { font-weight: 700; font-size: 18px; color: var(--accent); }
+  .stat { display: flex; flex-direction: column; line-height: 1.1; }
+  .stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .stat .value { font-size: 18px; font-weight: 700; }
+  .spacer { flex: 1; }
+  button {
+    font: inherit;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 16px;
+    cursor: pointer;
+    background: var(--accent);
+    color: #04293a;
+    transition: filter .12s, opacity .12s;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.ghost { background: var(--panel-2); color: var(--text); }
+
+  #main { flex: 1; position: relative; min-height: 0; }
+  #map { position: absolute; inset: 0; background: #0b1220; }
+
+  #prompt {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    background: rgba(15,23,42,.94);
+    border: 1px solid var(--panel-2);
+    border-radius: 12px;
+    padding: 12px 18px;
+    text-align: center;
+    box-shadow: 0 8px 28px rgba(0,0,0,.5);
+    min-width: 280px;
+    max-width: 92vw;
+  }
+  #prompt .ask { font-size: 13px; color: var(--muted); }
+  #prompt .city { font-size: 26px; font-weight: 800; letter-spacing: .01em; margin: 2px 0 6px; }
+  #prompt .attempts { font-size: 13px; color: var(--muted); }
+  #prompt .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin:0 2px; background:var(--panel-2); }
+  #prompt .dot.used { background: var(--bad); }
+  #prompt .dot.left { background: var(--good); }
+
+  #feedback {
+    position: absolute;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: rgba(15,23,42,.94);
+    border: 1px solid var(--panel-2);
+    border-radius: 12px;
+    padding: 12px 18px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.5);
+    min-width: 300px;
+    max-width: 92vw;
+    transition: opacity .2s;
+  }
+  #feedback.hidden { opacity: 0; pointer-events: none; }
+  #feedback .msg { flex: 1; }
+  #feedback .msg .headline { font-size: 16px; font-weight: 700; }
+  #feedback .msg .detail { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  #feedback .arrow { font-size: 28px; line-height: 1; }
+
+  .badge { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:700; }
+
+  /* Modal overlay */
+  #overlay {
+    position: absolute; inset: 0; z-index: 2000;
+    background: rgba(8,12,24,.82);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  #overlay.hidden { display: none; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-radius: 16px;
+    padding: 28px 32px;
+    max-width: 520px;
+    width: 100%;
+    box-shadow: 0 18px 50px rgba(0,0,0,.6);
+  }
+  .card h1 { margin: 0 0 6px; font-size: 26px; }
+  .card h1 .hl { color: var(--accent); }
+  .card p { color: var(--muted); line-height: 1.5; }
+  .rules { list-style: none; padding: 0; margin: 16px 0; }
+  .rules li { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--panel-2); }
+  .rules li:last-child { border-bottom: none; }
+  .rules .pts { font-weight:800; min-width:64px; }
+  .scoreline { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--panel-2); }
+  .scoreline:last-of-type { border-bottom:none; }
+  .scoreline .name { font-weight:600; }
+  .final { text-align:center; margin: 14px 0 4px; }
+  .final .big { font-size: 48px; font-weight: 800; color: var(--accent); }
+  .center { text-align:center; }
+  .mt { margin-top: 18px; }
+  .row { display:flex; gap:10px; justify-content:center; }
+  .picklabel { text-align:center; color:var(--muted); font-size:13px; margin:6px 0 10px; }
+  .diffsel { display:flex; gap:10px; }
+  .diffsel .diff {
+    flex:1; display:flex; flex-direction:column; gap:3px; align-items:center;
+    background:var(--panel-2); color:var(--text); padding:14px 8px; border-radius:12px;
+  }
+  .diffsel .diff b { font-size:15px; }
+  .diffsel .diff span { font-size:11px; color:var(--muted); font-weight:500; text-align:center; }
+  .diffsel .diff:hover { background:#3f4f66; }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">🌍 City Guesser</div>
+  <div class="stat"><span class="label">Round</span><span class="value" id="roundVal">—</span></div>
+  <div class="stat"><span class="label">City</span><span class="value" id="cityVal">—</span></div>
+  <div class="stat"><span class="label">Mode</span><span class="value" id="diffVal">—</span></div>
+  <div class="stat"><span class="label">Score</span><span class="value" id="scoreVal">0</span></div>
+  <div class="spacer"></div>
+  <button id="submitBtn" disabled>Submit guess</button>
+  <button id="restartBtn" class="ghost">Restart</button>
+</header>
+
+<div id="main">
+  <div id="map"></div>
+
+  <div id="prompt">
+    <div class="ask">Where in the world is</div>
+    <div class="city" id="promptCity">—</div>
+    <div class="attempts" id="promptAttempts"></div>
+  </div>
+
+  <div id="feedback" class="hidden">
+    <div class="arrow" id="fbArrow"></div>
+    <div class="msg">
+      <div class="headline" id="fbHeadline"></div>
+      <div class="detail" id="fbDetail"></div>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <div class="card" id="overlayCard"></div>
+  </div>
+</div>
+
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""
+></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---- City pool: name, country, lat, lon ----
+    const CITY_DATA = [
+    {n:"Shanghai",c:"China",lat:31.2222,lon:121.4581,d:"f"},
+    {n:"Beijing",c:"China",lat:39.9075,lon:116.3972,d:"f"},
+    {n:"Shenzhen",c:"China",lat:22.5455,lon:114.0683,d:"f"},
+    {n:"Guangzhou",c:"China",lat:23.1167,lon:113.25,d:"f"},
+    {n:"Kinshasa",c:"Democratic Republic of the Congo",lat:-4.3276,lon:15.3136,d:"f"},
+    {n:"Istanbul",c:"Turkey",lat:41.0138,lon:28.9497,d:"f"},
+    {n:"Lagos",c:"Nigeria",lat:6.4541,lon:3.3947,d:"f"},
+    {n:"Ho Chi Minh City",c:"Vietnam",lat:10.823,lon:106.6297,d:"f"},
+    {n:"Chengdu",c:"China",lat:30.6667,lon:104.0667,d:"f"},
+    {n:"Lahore",c:"Pakistan",lat:31.558,lon:74.3507,d:"f"},
+    {n:"Mumbai",c:"India",lat:19.0728,lon:72.8826,d:"f"},
+    {n:"Sao Paulo",c:"Brazil",lat:-23.5475,lon:-46.6361,d:"f"},
+    {n:"Mexico City",c:"Mexico",lat:19.4285,lon:-99.1277,d:"f"},
+    {n:"Karachi",c:"Pakistan",lat:24.8608,lon:67.0104,d:"f"},
+    {n:"Tianjin",c:"China",lat:39.1422,lon:117.1767,d:"f"},
+    {n:"Delhi",c:"India",lat:28.652,lon:77.2315,d:"f"},
+    {n:"Wuhan",c:"China",lat:30.5833,lon:114.2667,d:"f"},
+    {n:"Moscow",c:"Russia",lat:55.752,lon:37.6178,d:"f"},
+    {n:"Dhaka",c:"Bangladesh",lat:23.7104,lon:90.4074,d:"f"},
+    {n:"Seoul",c:"South Korea",lat:37.566,lon:126.9784,d:"f"},
+    {n:"Tokyo",c:"Japan",lat:35.6895,lon:139.6917,d:"f"},
+    {n:"Dongguan",c:"China",lat:23.018,lon:113.7487,d:"f"},
+    {n:"Cairo",c:"Egypt",lat:30.0626,lon:31.2497,d:"f"},
+    {n:"Johannesburg",c:"South Africa",lat:-26.2023,lon:28.0436,d:"f"},
+    {n:"London",c:"United Kingdom",lat:51.5085,lon:-0.1257,d:"f"},
+    {n:"New York City",c:"United States",lat:40.7143,lon:-74.006,d:"f"},
+    {n:"Jakarta",c:"Indonesia",lat:-6.2146,lon:106.8451,d:"f"},
+    {n:"Bengaluru",c:"India",lat:12.9719,lon:77.5937,d:"f"},
+    {n:"Hanoi",c:"Vietnam",lat:21.0245,lon:105.8412,d:"f"},
+    {n:"Taipei",c:"Taiwan",lat:25.0531,lon:121.5264,d:"f"},
+    {n:"Lima",c:"Peru",lat:-12.0432,lon:-77.0282,d:"f"},
+    {n:"Bogota",c:"Colombia",lat:4.6097,lon:-74.0817,d:"f"},
+    {n:"Hong Kong",c:"Hong Kong",lat:22.2783,lon:114.1747,d:"f"},
+    {n:"Baghdad",c:"Iraq",lat:33.3406,lon:44.4009,d:"f"},
+    {n:"Tehran",c:"Iran",lat:35.6944,lon:51.4215,d:"f"},
+    {n:"Hyderabad",c:"India",lat:17.384,lon:78.4564,d:"f"},
+    {n:"Rio de Janeiro",c:"Brazil",lat:-22.9064,lon:-43.1822,d:"f"},
+    {n:"Ahmedabad",c:"India",lat:23.0258,lon:72.5873,d:"f"},
+    {n:"Abidjan",c:"Ivory Coast",lat:5.3544,lon:-4.0017,d:"f"},
+    {n:"Singapore",c:"Singapore",lat:1.2897,lon:103.8501,d:"f"},
+    {n:"Sydney",c:"Australia",lat:-33.8678,lon:151.2073,d:"f"},
+    {n:"Dar es Salaam",c:"Tanzania",lat:-6.8235,lon:39.2695,d:"f"},
+    {n:"Saint Petersburg",c:"Russia",lat:59.9386,lon:30.3141,d:"f"},
+    {n:"Melbourne",c:"Australia",lat:-37.814,lon:144.9633,d:"f"},
+    {n:"Alexandria",c:"Egypt",lat:31.2018,lon:29.9158,d:"f"},
+    {n:"Bangkok",c:"Thailand",lat:13.754,lon:100.5014,d:"f"},
+    {n:"Kano",c:"Nigeria",lat:12.0001,lon:8.5167,d:"f"},
+    {n:"Santiago",c:"Chile",lat:-33.4569,lon:-70.6483,d:"f"},
+    {n:"Cape Town",c:"South Africa",lat:-33.9258,lon:18.4232,d:"f"},
+    {n:"Peshawar",c:"Pakistan",lat:34.008,lon:71.5785,d:"f"},
+    {n:"Jeddah",c:"Saudi Arabia",lat:21.4901,lon:39.1862,d:"f"},
+    {n:"Chennai",c:"India",lat:13.0878,lon:80.2785,d:"f"},
+    {n:"Kolkata",c:"India",lat:22.5626,lon:88.363,d:"f"},
+    {n:"Surat",c:"India",lat:21.1959,lon:72.8302,d:"f"},
+    {n:"Yangon",c:"Myanmar",lat:16.8053,lon:96.1561,d:"f"},
+    {n:"Kabul",c:"Afghanistan",lat:34.5281,lon:69.1723,d:"f"},
+    {n:"Nairobi",c:"Kenya",lat:-1.2833,lon:36.8167,d:"f"},
+    {n:"Giza",c:"Egypt",lat:30.0094,lon:31.2086,d:"f"},
+    {n:"Bamako",c:"Mali",lat:12.6092,lon:-7.9752,d:"f"},
+    {n:"Riyadh",c:"Saudi Arabia",lat:24.6877,lon:46.7219,d:"f"},
+    {n:"New Taipei City",c:"Taiwan",lat:25.062,lon:121.457,d:"f"},
+    {n:"New Territories",c:"Hong Kong",lat:22.4244,lon:114.111,d:"f"},
+    {n:"Chattogram",c:"Bangladesh",lat:22.3384,lon:91.8317,d:"f"},
+    {n:"Addis Ababa",c:"Ethiopia",lat:9.025,lon:38.7469,d:"f"},
+    {n:"Los Angeles",c:"United States",lat:34.0522,lon:-118.2437,d:"f"},
+    {n:"Faisalabad",c:"Pakistan",lat:31.4155,lon:73.0897,d:"f"},
+    {n:"Dubai",c:"United Arab Emirates",lat:25.0773,lon:55.3093,d:"f"},
+    {n:"Yokohama",c:"Japan",lat:35.4333,lon:139.65,d:"f"},
+    {n:"Casablanca",c:"Morocco",lat:33.5883,lon:-7.6114,d:"f"},
+    {n:"Ibadan",c:"Nigeria",lat:7.3776,lon:3.9059,d:"f"},
+    {n:"Ankara",c:"Turkey",lat:39.9199,lon:32.8543,d:"f"},
+    {n:"Berlin",c:"Germany",lat:52.5244,lon:13.4105,d:"f"},
+    {n:"Rawalpindi",c:"Pakistan",lat:33.5973,lon:73.0479,d:"f"},
+    {n:"Durban",c:"South Africa",lat:-29.8579,lon:31.0292,d:"f"},
+    {n:"Busan",c:"South Korea",lat:35.1017,lon:129.03,d:"f"},
+    {n:"Madrid",c:"Spain",lat:40.4165,lon:-3.7026,d:"f"},
+    {n:"Pyongyang",c:"North Korea",lat:39.0339,lon:125.7543,d:"f"},
+    {n:"Bursa",c:"Turkey",lat:40.1956,lon:29.0601,d:"f"},
+    {n:"Quezon City",c:"Philippines",lat:14.6488,lon:121.0509,d:"f"},
+    {n:"Incheon",c:"South Korea",lat:37.4565,lon:126.7052,d:"f"},
+    {n:"Caracas",c:"Venezuela",lat:10.488,lon:-66.8792,d:"f"},
+    {n:"Kyiv",c:"Ukraine",lat:50.4547,lon:30.5238,d:"f"},
+    {n:"Izmir",c:"Turkey",lat:38.4127,lon:27.1384,d:"f"},
+    {n:"Buenos Aires",c:"Argentina",lat:-34.6131,lon:-58.3772,d:"f"},
+    {n:"Surabaya",c:"Indonesia",lat:-7.2492,lon:112.7508,d:"f"},
+    {n:"Taichung",c:"Taiwan",lat:24.1469,lon:120.6839,d:"f"},
+    {n:"Toronto",c:"Canada",lat:43.7064,lon:-79.3986,d:"f"},
+    {n:"Quito",c:"Ecuador",lat:-0.2298,lon:-78.5249,d:"f"},
+    {n:"Brisbane",c:"Australia",lat:-27.4679,lon:153.0281,d:"f"},
+    {n:"Luanda",c:"Angola",lat:-8.8368,lon:13.2343,d:"f"},
+    {n:"Osaka",c:"Japan",lat:34.6938,lon:135.5011,d:"f"},
+    {n:"Kaohsiung",c:"Taiwan",lat:22.6163,lon:120.3133,d:"f"},
+    {n:"Brooklyn",c:"United States",lat:40.6501,lon:-73.9496,d:"f"},
+    {n:"Guayaquil",c:"Ecuador",lat:-2.1962,lon:-79.8862,d:"f"},
+    {n:"Belo Horizonte",c:"Brazil",lat:-19.9208,lon:-43.9378,d:"f"},
+    {n:"Salvador",c:"Brazil",lat:-12.9756,lon:-38.491,d:"f"},
+    {n:"Abuja",c:"Nigeria",lat:9.0579,lon:7.4951,d:"f"},
+    {n:"Gazipur",c:"Bangladesh",lat:23.9984,lon:90.4223,d:"f"},
+    {n:"Chicago",c:"United States",lat:41.85,lon:-87.65,d:"f"},
+    {n:"Dakar",c:"Senegal",lat:14.6937,lon:-17.4441,d:"f"},
+    {n:"Haiphong",c:"Vietnam",lat:20.8648,lon:106.6835,d:"f"},
+    {n:"Mogadishu",c:"Somalia",lat:2.0371,lon:45.3438,d:"f"},
+    {n:"Bekasi",c:"Indonesia",lat:-6.2349,lon:106.9896,d:"f"},
+    {n:"Kumasi",c:"Ghana",lat:6.6885,lon:-1.6244,d:"f"},
+    {n:"Gujranwala",c:"Pakistan",lat:32.1557,lon:74.1871,d:"f"},
+    {n:"Bandung",c:"Indonesia",lat:-6.9222,lon:107.6069,d:"f"},
+    {n:"Medan",c:"Indonesia",lat:3.5833,lon:98.6667,d:"f"},
+    {n:"Ouagadougou",c:"Burkina Faso",lat:12.3657,lon:-1.5339,d:"f"},
+    {n:"Fortaleza",c:"Brazil",lat:-3.7172,lon:-38.5431,d:"f"},
+    {n:"Cali",c:"Colombia",lat:3.4305,lon:-76.5199,d:"f"},
+    {n:"Daegu",c:"South Korea",lat:35.8703,lon:128.5911,d:"f"},
+    {n:"Algiers",c:"Algeria",lat:36.7323,lon:3.0875,d:"f"},
+    {n:"Baku",c:"Azerbaijan",lat:40.3777,lon:49.892,d:"f"},
+    {n:"Nagoya",c:"Japan",lat:35.1815,lon:136.9064,d:"f"},
+    {n:"Rome",c:"Italy",lat:41.8919,lon:12.5113,d:"f"},
+    {n:"Queens",c:"United States",lat:40.6815,lon:-73.8365,d:"f"},
+    {n:"Houston",c:"United States",lat:29.7633,lon:-95.3633,d:"f"},
+    {n:"Perth",c:"Australia",lat:-31.9522,lon:115.8614,d:"f"},
+    {n:"Mashhad",c:"Iran",lat:36.2981,lon:59.6057,d:"f"},
+    {n:"Kowloon",c:"Hong Kong",lat:22.3167,lon:114.1833,d:"f"},
+    {n:"Gaziantep",c:"Turkey",lat:37.0594,lon:37.3825,d:"f"},
+    {n:"Lubumbashi",c:"Democratic Republic of the Congo",lat:-11.6609,lon:27.4794,d:"f"},
+    {n:"Manaus",c:"Brazil",lat:-3.1019,lon:-60.025,d:"f"},
+    {n:"Lusaka",c:"Zambia",lat:-15.4067,lon:28.2871,d:"f"},
+    {n:"Brasilia",c:"Brazil",lat:-15.7797,lon:-47.9297,d:"f"},
+    {n:"Santo Domingo",c:"Dominican Republic",lat:18.4719,lon:-69.8923,d:"f"},
+    {n:"Lome",c:"Togo",lat:6.1287,lon:1.2215,d:"f"},
+    {n:"Multan",c:"Pakistan",lat:30.1968,lon:71.4782,d:"f"},
+    {n:"Havana",c:"Cuba",lat:23.133,lon:-82.383,d:"f"},
+    {n:"Paris",c:"France",lat:48.8534,lon:2.3488,d:"f"},
+    {n:"Port Harcourt",c:"Nigeria",lat:4.7774,lon:7.0134,d:"f"},
+    {n:"Pretoria",c:"South Africa",lat:-25.7449,lon:28.1878,d:"f"},
+    {n:"Cordoba",c:"Argentina",lat:-31.4065,lon:-64.1885,d:"f"},
+    {n:"Mbuji-Mayi",c:"Democratic Republic of the Congo",lat:-6.136,lon:23.5898,d:"f"},
+    {n:"Aleppo",c:"Syria",lat:36.2012,lon:37.1612,d:"f"},
+    {n:"Al Mawsil al Jadidah",c:"Iraq",lat:36.3327,lon:43.1056,d:"f"},
+    {n:"Al Basrah al Qadimah",c:"Iraq",lat:30.5032,lon:47.8151,d:"f"},
+    {n:"La Paz",c:"Bolivia",lat:-16.5,lon:-68.15,d:"f"},
+    {n:"Medellin",c:"Colombia",lat:6.245,lon:-75.5715,d:"f"},
+    {n:"Brazzaville",c:"Republic of the Congo",lat:-4.2661,lon:15.2832,d:"f"},
+    {n:"Tashkent",c:"Uzbekistan",lat:41.2647,lon:69.2163,d:"f"},
+    {n:"Almaty",c:"Kazakhstan",lat:43.2525,lon:76.9115,d:"f"},
+    {n:"Khartoum",c:"Sudan",lat:15.5518,lon:32.5324,d:"f"},
+    {n:"Hamburg",c:"Germany",lat:53.5507,lon:9.993,d:"f"},
+    {n:"Sapporo",c:"Japan",lat:43.0667,lon:141.35,d:"f"},
+    {n:"Accra",c:"Ghana",lat:5.556,lon:-0.1969,d:"f"},
+    {n:"Curitiba",c:"Brazil",lat:-25.4278,lon:-49.2731,d:"f"},
+    {n:"Sanaa",c:"Yemen",lat:15.3545,lon:44.2065,d:"f"},
+    {n:"Conakry",c:"Guinea",lat:9.538,lon:-13.6773,d:"f"},
+    {n:"Tijuana",c:"Mexico",lat:32.5027,lon:-117.0037,d:"f"},
+    {n:"Hyderabad",c:"Pakistan",lat:25.3969,lon:68.3772,d:"f"},
+    {n:"Beirut",c:"Lebanon",lat:33.8933,lon:35.5016,d:"f"},
+    {n:"Tangerang",c:"Indonesia",lat:-6.1781,lon:106.63,d:"f"},
+    {n:"Bucharest",c:"Romania",lat:44.4323,lon:26.1063,d:"f"},
+    {n:"Camayenne",c:"Guinea",lat:9.535,lon:-13.6878,d:"f"},
+    {n:"Kakamega",c:"Kenya",lat:0.2842,lon:34.7523,d:"f"},
+    {n:"Tainan",c:"Taiwan",lat:22.9908,lon:120.2133,d:"f"},
+    {n:"Kaduna",c:"Nigeria",lat:10.5264,lon:7.4388,d:"f"},
+    {n:"Omdurman",c:"Sudan",lat:15.6445,lon:32.4777,d:"f"},
+    {n:"Davao",c:"Philippines",lat:7.0731,lon:125.6128,d:"f"},
+    {n:"Iztapalapa",c:"Mexico",lat:19.3553,lon:-99.0622,d:"f"},
+    {n:"Diyarbakir",c:"Turkey",lat:37.9136,lon:40.2172,d:"f"},
+    {n:"Santa Cruz de la Sierra",c:"Bolivia",lat:-17.7863,lon:-63.1812,d:"f"},
+    {n:"Adana",c:"Turkey",lat:36.9862,lon:35.3253,d:"f"},
+    {n:"Abu Dhabi",c:"United Arab Emirates",lat:24.4512,lon:54.397,d:"f"},
+    {n:"Sharjah",c:"United Arab Emirates",lat:25.3342,lon:55.4122,d:"f"},
+    {n:"Benin City",c:"Nigeria",lat:6.3382,lon:5.6258,d:"f"},
+    {n:"Montreal",c:"Canada",lat:45.5088,lon:-73.5878,d:"f"},
+    {n:"Maracaibo",c:"Venezuela",lat:10.6423,lon:-71.6109,d:"f"},
+    {n:"Minsk",c:"Belarus",lat:53.9002,lon:27.5665,d:"f"},
+    {n:"Budapest",c:"Hungary",lat:47.4984,lon:19.0405,d:"f"},
+    {n:"Caloocan",c:"Philippines",lat:14.6495,lon:120.9679,d:"f"},
+    {n:"Warsaw",c:"Poland",lat:52.2298,lon:21.0118,d:"f"},
+    {n:"Soweto",c:"South Africa",lat:-26.2678,lon:27.8585,d:"f"},
+    {n:"Puebla",c:"Mexico",lat:19.0478,lon:-98.2072,d:"f"},
+    {n:"Vienna",c:"Austria",lat:48.2085,lon:16.3721,d:"f"},
+    {n:"Barcelona",c:"Spain",lat:41.3888,lon:2.159,d:"f"},
+    {n:"Mosul",c:"Iraq",lat:36.335,lon:43.1189,d:"f"},
+    {n:"Kampala",c:"Uganda",lat:0.3163,lon:32.5822,d:"f"},
+    {n:"Palembang",c:"Indonesia",lat:-2.9167,lon:104.7458,d:"f"},
+    {n:"Rabat",c:"Morocco",lat:34.0133,lon:-6.8325,d:"f"},
+    {n:"Semarang",c:"Indonesia",lat:-6.9931,lon:110.4208,d:"f"},
+    {n:"Phoenix",c:"United States",lat:33.4484,lon:-112.074,d:"f"},
+    {n:"Ecatepec de Morelos",c:"Mexico",lat:19.6049,lon:-99.0606,d:"f"},
+    {n:"Valencia",c:"Venezuela",lat:10.1615,lon:-68.0004,d:"f"},
+    {n:"Novosibirsk",c:"Russia",lat:55.0226,lon:82.9317,d:"f"},
+    {n:"Erbil",c:"Iraq",lat:36.1912,lon:44.0094,d:"f"},
+    {n:"Fukuoka",c:"Japan",lat:33.6,lon:130.4167,d:"f"},
+    {n:"Manila",c:"Philippines",lat:14.6042,lon:120.9822,d:"f"},
+    {n:"Santiago de Queretaro",c:"Mexico",lat:20.5881,lon:-100.3881,d:"f"},
+    {n:"Leon de los Aldama",c:"Mexico",lat:21.1218,lon:-101.6825,d:"f"},
+    {n:"Makkah",c:"Saudi Arabia",lat:21.4266,lon:39.8256,d:"f"},
+    {n:"Philadelphia",c:"United States",lat:39.9524,lon:-75.1636,d:"f"},
+    {n:"Phnom Penh",c:"Cambodia",lat:11.5625,lon:104.916,d:"f"},
+    {n:"Damascus",c:"Syria",lat:33.5102,lon:36.2913,d:"f"},
+    {n:"Onitsha",c:"Nigeria",lat:6.1498,lon:6.7857,d:"f"},
+    {n:"Auckland",c:"New Zealand",lat:-36.8485,lon:174.7635,d:"f"},
+    {n:"Isfahan",c:"Iran",lat:32.6525,lon:51.6746,d:"f"},
+    {n:"Harare",c:"Zimbabwe",lat:-17.8277,lon:31.0534,d:"f"},
+    {n:"Monrovia",c:"Liberia",lat:6.3005,lon:-10.7969,d:"f"},
+    {n:"Kawasaki",c:"Japan",lat:35.5206,lon:139.7172,d:"f"},
+    {n:"Kobe",c:"Japan",lat:34.6913,lon:135.183,d:"f"},
+    {n:"Stockholm",c:"Sweden",lat:59.3294,lon:18.0687,d:"f"},
+    {n:"Ciudad Juarez",c:"Mexico",lat:31.7202,lon:-106.4608,d:"f"},
+    {n:"Can Tho",c:"Vietnam",lat:10.0371,lon:105.7883,d:"f"},
+    {n:"Munich",c:"Germany",lat:48.1374,lon:11.5755,d:"f"},
+    {n:"Khulna",c:"Bangladesh",lat:22.8098,lon:89.5644,d:"f"},
+    {n:"Yekaterinburg",c:"Russia",lat:56.8573,lon:60.6153,d:"f"},
+    {n:"Asuncion",c:"Paraguay",lat:-25.2865,lon:-57.647,d:"f"},
+    {n:"Adelaide",c:"Australia",lat:-34.9287,lon:138.5986,d:"f"},
+    {n:"Kuala Lumpur",c:"Malaysia",lat:3.1412,lon:101.6865,d:"f"},
+    {n:"Kayseri",c:"Turkey",lat:38.7322,lon:35.4853,d:"f"},
+    {n:"Karaj",c:"Iran",lat:35.8327,lon:50.9915,d:"f"},
+    {n:"Kathmandu",c:"Nepal",lat:27.7017,lon:85.3206,d:"f"},
+    {n:"Daejeon",c:"South Korea",lat:36.3491,lon:127.3849,d:"f"},
+    {n:"Tabriz",c:"Iran",lat:38.08,lon:46.2919,d:"f"},
+    {n:"Kharkiv",c:"Ukraine",lat:49.9818,lon:36.2548,d:"f"},
+    {n:"Hue",c:"Vietnam",lat:16.4619,lon:107.5955,d:"f"},
+    {n:"Milan",c:"Italy",lat:45.4643,lon:9.1895,d:"f"},
+    {n:"N'Djamena",c:"Chad",lat:12.1067,lon:15.0444,d:"f"},
+    {n:"Antananarivo",c:"Madagascar",lat:-18.9137,lon:47.5361,d:"f"},
+    {n:"Abobo",c:"Ivory Coast",lat:5.4161,lon:-4.0159,d:"f"},
+    {n:"Douala",c:"Cameroon",lat:4.0483,lon:9.7043,d:"f"},
+    {n:"Basrah",c:"Iraq",lat:30.5085,lon:47.7804,d:"f"},
+    {n:"Niamey",c:"Niger",lat:13.5137,lon:2.1098,d:"f"},
+    {n:"Taguig",c:"Philippines",lat:14.5243,lon:121.0792,d:"f"},
+    {n:"Calgary",c:"Canada",lat:51.0501,lon:-114.0853,d:"f"},
+    {n:"Tripoli",c:"Libya",lat:32.8874,lon:13.1873,d:"f"},
+    {n:"Callao",c:"Peru",lat:-12.0516,lon:-77.1345,d:"f"},
+    {n:"Madinah",c:"Saudi Arabia",lat:24.4686,lon:39.6142,d:"f"},
+    {n:"Yaounde",c:"Cameroon",lat:3.8667,lon:11.5167,d:"f"},
+    {n:"Da Nang",c:"Vietnam",lat:16.0678,lon:108.2208,d:"f"},
+    {n:"Amman",c:"Jordan",lat:31.9552,lon:35.945,d:"f"},
+    {n:"Budta",c:"Philippines",lat:7.2042,lon:124.4397,d:"f"},
+    {n:"Belgrade",c:"Serbia",lat:44.804,lon:20.4651,d:"f"},
+    {n:"Bien Hoa",c:"Vietnam",lat:10.9447,lon:106.8243,d:"f"},
+    {n:"Montevideo",c:"Uruguay",lat:-34.9033,lon:-56.1882,d:"f"},
+    {n:"Nizhniy Novgorod",c:"Russia",lat:56.3287,lon:44.002,d:"f"},
+    {n:"Maputo",c:"Mozambique",lat:-25.9655,lon:32.5832,d:"f"},
+    {n:"Dammam",c:"Saudi Arabia",lat:26.4344,lon:50.1033,d:"f"},
+    {n:"Ra's Bayrut",c:"Lebanon",lat:33.9,lon:35.4833,d:"f"},
+    {n:"Shiraz",c:"Iran",lat:29.6103,lon:52.5311,d:"f"},
+    {n:"Kananga",c:"Democratic Republic of the Congo",lat:-5.8962,lon:22.4166,d:"f"},
+    {n:"Kazan",c:"Russia",lat:55.7887,lon:49.1221,d:"f"},
+    {n:"Barquisimeto",c:"Venezuela",lat:10.0647,lon:-69.357,d:"f"},
+    {n:"Shubra al Khaymah",c:"Egypt",lat:30.1251,lon:31.2505,d:"f"},
+    {n:"Port-au-Prince",c:"Haiti",lat:18.5435,lon:-72.3388,d:"f"},
+    {n:"Suwon",c:"South Korea",lat:37.2911,lon:127.0089,d:"f"},
+    {n:"Karbala",c:"Iraq",lat:32.616,lon:44.0249,d:"f"},
+    {n:"Sadr City",c:"Iraq",lat:33.3889,lon:44.4583,d:"f"},
+    {n:"Monzon",c:"Spain",lat:41.9108,lon:0.1941,d:"o"},
+    {n:"Saint-Amand-les-Eaux",c:"France",lat:50.4472,lon:3.4308,d:"o"},
+    {n:"Mahan",c:"Iran",lat:30.0594,lon:57.292,d:"o"},
+    {n:"Fryazino",c:"Russia",lat:55.9613,lon:38.0464,d:"o"},
+    {n:"Ban Khoan",c:"Laos",lat:20.3501,lon:100.0902,d:"o"},
+    {n:"Sherman",c:"United States",lat:33.6357,lon:-96.6089,d:"o"},
+    {n:"El 'Ayoun",c:"Mauritania",lat:15.5579,lon:-11.18,d:"o"},
+    {n:"Vallehermoso",c:"Spain",lat:40.4429,lon:-3.7112,d:"o"},
+    {n:"Wellingborough",c:"United Kingdom",lat:52.3027,lon:-0.6945,d:"o"},
+    {n:"Oyten",c:"Germany",lat:53.055,lon:9.02,d:"o"},
+    {n:"Ziniare",c:"Burkina Faso",lat:12.5824,lon:-1.2975,d:"o"},
+    {n:"Devadanapatti",c:"India",lat:10.1467,lon:77.6439,d:"o"},
+    {n:"Calw",c:"Germany",lat:48.7142,lon:8.7403,d:"o"},
+    {n:"Oba",c:"Turkey",lat:36.5501,lon:32.0596,d:"o"},
+    {n:"Godda",c:"India",lat:24.827,lon:87.2125,d:"o"},
+    {n:"el Putxet i el Farro",c:"Spain",lat:41.4069,lon:2.1439,d:"o"},
+    {n:"Gampengrejo",c:"Indonesia",lat:-7.764,lon:112.035,d:"o"},
+    {n:"Hueckelhoven",c:"Germany",lat:51.0555,lon:6.2266,d:"o"},
+    {n:"Bukit Gemuroh",c:"Malaysia",lat:5.2978,lon:100.2115,d:"o"},
+    {n:"Buni",c:"Pakistan",lat:36.2733,lon:72.2593,d:"o"},
+    {n:"Bhuwana",c:"India",lat:24.6214,lon:73.7082,d:"o"},
+    {n:"Atoyac de Alvarez",c:"Mexico",lat:17.2067,lon:-100.4331,d:"o"},
+    {n:"Claremont",c:"United States",lat:34.0967,lon:-117.7198,d:"o"},
+    {n:"Roissy-en-Brie",c:"France",lat:48.7916,lon:2.6475,d:"o"},
+    {n:"Montecatini-Terme",c:"Italy",lat:43.8815,lon:10.7723,d:"o"},
+    {n:"Trebic",c:"Czechia",lat:49.2149,lon:15.8817,d:"o"},
+    {n:"Shahrak-e 'Ala'in",c:"Iran",lat:35.5823,lon:51.4556,d:"o"},
+    {n:"Toshloq",c:"Uzbekistan",lat:40.4772,lon:71.7678,d:"o"},
+    {n:"Thala",c:"Tunisia",lat:35.5724,lon:8.6703,d:"o"},
+    {n:"Mernda",c:"Australia",lat:-37.6007,lon:145.0956,d:"o"},
+    {n:"Urmston",c:"United Kingdom",lat:53.4485,lon:-2.3542,d:"o"},
+    {n:"Kwale",c:"Nigeria",lat:5.7077,lon:6.434,d:"o"},
+    {n:"Zwijndrecht",c:"Belgium",lat:51.2198,lon:4.3266,d:"o"},
+    {n:"Gombe",c:"Angola",lat:-8.1244,lon:14.2908,d:"o"},
+    {n:"Gaithersburg",c:"United States",lat:39.1434,lon:-77.2014,d:"o"},
+    {n:"Knyahynyn",c:"Ukraine",lat:48.9356,lon:24.7131,d:"o"},
+    {n:"Hakui",c:"Japan",lat:36.8833,lon:136.7833,d:"o"},
+    {n:"Swiebodzice",c:"Poland",lat:50.8597,lon:16.3197,d:"o"},
+    {n:"Izunokuni",c:"Japan",lat:35.0391,lon:138.9514,d:"o"},
+    {n:"Bou Ismail",c:"Algeria",lat:36.6426,lon:2.6901,d:"o"},
+    {n:"Gudermes",c:"Russia",lat:43.3508,lon:46.101,d:"o"},
+    {n:"Cassanguidi",c:"Angola",lat:-7.4837,lon:21.3034,d:"o"},
+    {n:"Lommel",c:"Belgium",lat:51.2307,lon:5.3135,d:"o"},
+    {n:"Whitstable",c:"United Kingdom",lat:51.3607,lon:1.0257,d:"o"},
+    {n:"Mer'awi",c:"Ethiopia",lat:11.4167,lon:37.1667,d:"o"},
+    {n:"Gusinoozyorsk",c:"Russia",lat:51.2833,lon:106.5,d:"o"},
+    {n:"Norrtaelje",c:"Sweden",lat:59.758,lon:18.705,d:"o"},
+    {n:"Plaisir",c:"France",lat:48.8232,lon:1.9541,d:"o"},
+    {n:"Huoqiu Chengguanzhen",c:"China",lat:32.3547,lon:116.2939,d:"o"},
+    {n:"Terra Roxa",c:"Brazil",lat:-24.1567,lon:-54.0969,d:"o"},
+    {n:"Lauttasaari",c:"Finland",lat:60.159,lon:24.868,d:"o"},
+    {n:"Sarikamis",c:"Turkey",lat:40.3277,lon:42.5871,d:"o"},
+    {n:"Loimaa",c:"Finland",lat:60.8497,lon:23.0561,d:"o"},
+    {n:"Shimabara",c:"Japan",lat:32.7833,lon:130.3667,d:"o"},
+    {n:"Ipira",c:"Brazil",lat:-12.1583,lon:-39.7372,d:"o"},
+    {n:"Borlaenge",c:"Sweden",lat:60.4858,lon:15.4371,d:"o"},
+    {n:"Bunawan",c:"Philippines",lat:8.1672,lon:125.9908,d:"o"},
+    {n:"Mornington",c:"Australia",lat:-38.2179,lon:145.0388,d:"o"},
+    {n:"Nyachera",c:"Uganda",lat:-0.9,lon:30.4167,d:"o"},
+    {n:"San Miniato",c:"Italy",lat:43.6795,lon:10.8498,d:"o"},
+    {n:"Gyal",c:"Hungary",lat:47.3845,lon:19.2214,d:"o"},
+    {n:"Dimona",c:"Israel",lat:31.0708,lon:35.0327,d:"o"},
+    {n:"Sestu",c:"Italy",lat:39.2985,lon:9.0925,d:"o"},
+    {n:"Narangba",c:"Australia",lat:-27.2034,lon:152.9592,d:"o"},
+    {n:"Ksour Essaf",c:"Tunisia",lat:35.4181,lon:10.9948,d:"o"},
+    {n:"Resplendor",c:"Brazil",lat:-19.3256,lon:-41.2553,d:"o"},
+    {n:"Mbinga",c:"Tanzania",lat:-10.9333,lon:35.0167,d:"o"},
+    {n:"Demnate",c:"Morocco",lat:31.7344,lon:-7.005,d:"o"},
+    {n:"Haidong Zhen",c:"China",lat:25.7098,lon:100.2606,d:"o"},
+    {n:"Wolomin",c:"Poland",lat:52.3401,lon:21.2421,d:"o"},
+    {n:"Hualqui",c:"Chile",lat:-36.9727,lon:-72.9356,d:"o"},
+    {n:"Burgersdorp",c:"South Africa",lat:-30.9977,lon:26.3286,d:"o"},
+    {n:"New Bani Sewif City",c:"Egypt",lat:29.0356,lon:31.1179,d:"o"},
+    {n:"Fengjia",c:"China",lat:29.3931,lon:108.7846,d:"o"},
+    {n:"Santa Ana",c:"Venezuela",lat:11.0683,lon:-63.9226,d:"o"},
+    {n:"Rejon ulicy Traugutta",c:"Poland",lat:51.1025,lon:17.0483,d:"o"},
+    {n:"Mangochi",c:"Malawi",lat:-14.4781,lon:35.2645,d:"o"},
+    {n:"Jafaro",c:"Madagascar",lat:-24.9167,lon:45.5167,d:"o"},
+    {n:"Rovira",c:"Colombia",lat:4.2392,lon:-75.24,d:"o"},
+    {n:"Kyamahungu",c:"Uganda",lat:-0.4514,lon:30.1133,d:"o"},
+    {n:"Choghadak",c:"Iran",lat:28.986,lon:51.0364,d:"o"},
+    {n:"Klouekanme",c:"Benin",lat:6.9803,lon:1.8422,d:"o"},
+    {n:"Suchiapa",c:"Mexico",lat:16.6247,lon:-93.0989,d:"o"},
+    {n:"Namlea",c:"Indonesia",lat:-3.2619,lon:127.0929,d:"o"},
+    {n:"Nkambe",c:"Cameroon",lat:6.6333,lon:10.6667,d:"o"},
+    {n:"Zuerich (Kreis 9) / Altstetten",c:"Switzerland",lat:47.3895,lon:8.4853,d:"o"},
+    {n:"Rumah",c:"Saudi Arabia",lat:25.5639,lon:47.1641,d:"o"},
+    {n:"Nguigmi",c:"Niger",lat:14.2495,lon:13.1092,d:"o"},
+    {n:"Uzice",c:"Serbia",lat:43.8586,lon:19.8488,d:"o"},
+    {n:"Ganda",c:"Angola",lat:-13.0159,lon:14.635,d:"o"},
+    {n:"Hendala",c:"Sri Lanka",lat:6.9909,lon:79.883,d:"o"},
+    {n:"Xiluo",c:"Taiwan",lat:23.7989,lon:120.4634,d:"o"},
+    {n:"Kabala",c:"Sierra Leone",lat:9.5889,lon:-11.5526,d:"o"},
+    {n:"Yecapixtla",c:"Mexico",lat:18.8833,lon:-98.865,d:"o"},
+    {n:"Tornio",c:"Finland",lat:65.8481,lon:24.1466,d:"o"},
+    {n:"Mkoani",c:"Tanzania",lat:-5.3667,lon:39.65,d:"o"},
+    {n:"Ishoj",c:"Denmark",lat:55.6154,lon:12.3518,d:"o"},
+    {n:"Le Port",c:"Reunion",lat:-20.9375,lon:55.2942,d:"o"},
+    {n:"Parvomay",c:"Bulgaria",lat:42.1,lon:25.2167,d:"o"},
+    {n:"Fleurus",c:"Belgium",lat:50.4835,lon:4.5501,d:"o"},
+    {n:"Nibong Tebal",c:"Malaysia",lat:5.1659,lon:100.4779,d:"o"},
+    {n:"Svatove",c:"Ukraine",lat:49.4072,lon:38.1536,d:"o"},
+    {n:"Yegyi",c:"Ghana",lat:8.2254,lon:-0.6489,d:"o"},
+    {n:"Maromandia",c:"Madagascar",lat:-14.2167,lon:48.0833,d:"o"},
+    {n:"Vallentuna",c:"Sweden",lat:59.5344,lon:18.0776,d:"o"},
+    {n:"Nansio",c:"Tanzania",lat:-2.1333,lon:33.05,d:"o"},
+    {n:"Swellendam",c:"South Africa",lat:-34.0226,lon:20.4417,d:"o"},
+    {n:"Adjaouere",c:"Benin",lat:7.0023,lon:2.6059,d:"o"},
+    {n:"Yesan",c:"South Korea",lat:36.6776,lon:126.8427,d:"o"},
+    {n:"Qo`rg`ontepa",c:"Uzbekistan",lat:40.7319,lon:72.7618,d:"o"},
+    {n:"Famagusta",c:"Cyprus",lat:35.1249,lon:33.9414,d:"o"},
+    {n:"Baranoa",c:"Colombia",lat:10.7941,lon:-74.9164,d:"o"},
+    {n:"Abong Mbang",c:"Cameroon",lat:3.9833,lon:13.1833,d:"o"},
+    {n:"Trstenik",c:"Serbia",lat:43.6169,lon:21.0025,d:"o"},
+    {n:"Ajka",c:"Hungary",lat:47.102,lon:17.5589,d:"o"},
+    {n:"Benoy",c:"Chad",lat:8.9833,lon:16.3199,d:"o"},
+    {n:"San Luis Jilotepeque",c:"Guatemala",lat:14.6472,lon:-89.7246,d:"o"},
+    {n:"Kyurdarmir",c:"Azerbaijan",lat:40.3426,lon:48.1565,d:"o"},
+    {n:"Of",c:"Turkey",lat:40.9406,lon:40.2592,d:"o"},
+    {n:"Dombovar",c:"Hungary",lat:46.3766,lon:18.137,d:"o"},
+    {n:"Ibo Town",c:"Gambia",lat:13.4353,lon:-16.6764,d:"o"},
+    {n:"Metlaoui",c:"Tunisia",lat:34.3208,lon:8.4016,d:"o"},
+    {n:"Rio Claro",c:"Trinidad and Tobago",lat:10.3059,lon:-61.1756,d:"o"},
+    {n:"Baki",c:"Somalia",lat:9.8921,lon:43.3853,d:"o"},
+    {n:"Bussum",c:"The Netherlands",lat:52.2733,lon:5.1611,d:"o"},
+    {n:"San Marcos",c:"Colombia",lat:8.6597,lon:-75.1281,d:"o"},
+    {n:"Dzhankoy",c:"Ukraine",lat:45.7131,lon:34.3927,d:"o"},
+    {n:"Qormi",c:"Malta",lat:35.876,lon:14.472,d:"o"},
+    {n:"Hlanganani",c:"South Africa",lat:-24.9591,lon:31.1703,d:"o"},
+    {n:"Usulutan",c:"El Salvador",lat:13.3447,lon:-88.4399,d:"o"},
+    {n:"Saint-Charles-Borromee",c:"Canada",lat:46.0501,lon:-73.4659,d:"o"},
+    {n:"Korrewegwijk",c:"The Netherlands",lat:53.2324,lon:6.568,d:"o"},
+    {n:"Little Portugal",c:"Canada",lat:43.6466,lon:-79.4296,d:"o"},
+    {n:"Zakiyah",c:"Syria",lat:33.3341,lon:36.1588,d:"o"},
+    {n:"Sinda",c:"Zambia",lat:-14.21,lon:31.7629,d:"o"},
+    {n:"Allschwil",c:"Switzerland",lat:47.5507,lon:7.536,d:"o"},
+    {n:"Pind Dadan Khan",c:"Pakistan",lat:32.5866,lon:73.0446,d:"o"},
+    {n:"Wamba",c:"Nigeria",lat:8.9415,lon:8.6032,d:"o"},
+    {n:"Molo",c:"Kenya",lat:-0.2485,lon:35.7319,d:"o"},
+    {n:"Puerto Cumarebo",c:"Venezuela",lat:11.4861,lon:-69.3532,d:"o"},
+    {n:"Ualog",c:"Philippines",lat:10.574,lon:123.3933,d:"o"},
+    {n:"Bazar-Korgon",c:"Kyrgyzstan",lat:41.0376,lon:72.7459,d:"o"},
+    {n:"Gohouo",c:"Ivory Coast",lat:7.054,lon:-7.4403,d:"o"},
+    {n:"Pottuvil",c:"Sri Lanka",lat:6.8762,lon:81.8267,d:"o"},
+    {n:"Erlin",c:"Taiwan",lat:23.9005,lon:120.3689,d:"o"},
+    {n:"Kawasan Penempatan Ulu Benut Tiga",c:"Malaysia",lat:1.7497,lon:103.277,d:"o"},
+    {n:"Bocsa",c:"Romania",lat:45.3733,lon:21.7092,d:"o"},
+    {n:"Itogon",c:"Philippines",lat:16.3639,lon:120.6769,d:"o"},
+    {n:"Ifanadiana",c:"Madagascar",lat:-21.3,lon:47.6333,d:"o"},
+    {n:"Jovellanos",c:"Cuba",lat:22.8038,lon:-81.1913,d:"o"},
+    {n:"El Bauga",c:"Sudan",lat:18.262,lon:33.9081,d:"o"},
+    {n:"Khashm al Qirbah",c:"Sudan",lat:14.9667,lon:35.9167,d:"o"},
+    {n:"Sao Tiago de Custoias",c:"Portugal",lat:41.2,lon:-8.6333,d:"o"},
+    {n:"Rijen",c:"The Netherlands",lat:51.5908,lon:4.9194,d:"o"},
+    {n:"Rio Segundo",c:"Argentina",lat:-31.6501,lon:-63.9116,d:"o"},
+    {n:"Dourbali",c:"Chad",lat:11.8062,lon:15.8669,d:"o"},
+    {n:"Tiom",c:"Indonesia",lat:-3.9236,lon:138.4547,d:"o"},
+    {n:"Mount Pleasant East",c:"Canada",lat:43.7049,lon:-79.3849,d:"o"},
+    {n:"Kashmor",c:"Pakistan",lat:28.4326,lon:69.5836,d:"o"},
+    {n:"Half Way Tree",c:"Jamaica",lat:18.0125,lon:-76.7993,d:"o"},
+    {n:"Ita",c:"Paraguay",lat:-25.5005,lon:-57.3672,d:"o"},
+    {n:"San Vicente de Tagua Tagua",c:"Chile",lat:-34.4386,lon:-71.0775,d:"o"},
+    {n:"Quesada",c:"Costa Rica",lat:10.3266,lon:-84.432,d:"o"},
+    {n:"Smederevo",c:"Serbia",lat:44.6644,lon:20.9276,d:"o"},
+    {n:"Butel",c:"North Macedonia",lat:42.0308,lon:21.4467,d:"o"},
+    {n:"La Breita",c:"Peru",lat:-4.2569,lon:-80.886,d:"o"},
+    {n:"Kyaikkami",c:"Myanmar",lat:16.0769,lon:97.5639,d:"o"},
+    {n:"Los Dos Caminos",c:"Venezuela",lat:10.4939,lon:-66.8286,d:"o"},
+    {n:"Tine Biougra",c:"Morocco",lat:30.2094,lon:-9.3792,d:"o"},
+    {n:"Sassandra",c:"Ivory Coast",lat:4.9538,lon:-6.0853,d:"o"},
+    {n:"Kato Polemidia",c:"Cyprus",lat:34.6972,lon:32.9932,d:"o"},
+    {n:"Bet She'an",c:"Israel",lat:32.4973,lon:35.4963,d:"o"},
+    {n:"Surif City",c:"Palestinian Territory",lat:31.6508,lon:35.0644,d:"o"},
+    {n:"Qaisumah",c:"Saudi Arabia",lat:28.3112,lon:46.1273,d:"o"},
+    {n:"Veliko Turnovo",c:"Bulgaria",lat:43.0812,lon:25.629,d:"o"},
+    {n:"Bhadrapur",c:"Nepal",lat:26.544,lon:88.0944,d:"o"},
+    {n:"Neratovice",c:"Czechia",lat:50.2593,lon:14.5176,d:"o"},
+    {n:"Umm Suqaym",c:"United Arab Emirates",lat:25.1549,lon:55.2102,d:"o"},
+    {n:"Saryaghash",c:"Kazakhstan",lat:41.4604,lon:69.1679,d:"o"},
+    {n:"Kibre Mengist",c:"Ethiopia",lat:5.8833,lon:38.9833,d:"o"},
+    {n:"Monte Llano",c:"Dominican Republic",lat:19.7346,lon:-70.5991,d:"o"},
+    {n:"Khasab",c:"Oman",lat:26.1799,lon:56.2477,d:"o"},
+    {n:"Gobesa",c:"Ethiopia",lat:7.6167,lon:39.5,d:"o"},
+    {n:"Navan",c:"Ireland",lat:53.6528,lon:-6.6814,d:"o"},
+    {n:"Jona",c:"Switzerland",lat:47.2298,lon:8.8388,d:"o"},
+    {n:"Al Bajur",c:"Egypt",lat:30.4305,lon:31.0368,d:"o"},
+    {n:"Darazo",c:"Nigeria",lat:10.9992,lon:10.4106,d:"o"},
+    {n:"Nalayh",c:"Mongolia",lat:47.7667,lon:107.2833,d:"o"},
+    {n:"Pantelimon",c:"Romania",lat:44.45,lon:26.2,d:"o"},
+    {n:"Dogomet",c:"Guinea",lat:10.5891,lon:-11.1775,d:"o"},
+    {n:"Pushkino",c:"Azerbaijan",lat:39.4583,lon:48.545,d:"o"},
+    {n:"Rubanda",c:"Uganda",lat:-1.1883,lon:29.8461,d:"o"},
+    {n:"Wetzelsdorf",c:"Austria",lat:47.0529,lon:15.3992,d:"o"},
+    {n:"Bohnice",c:"Czechia",lat:50.1333,lon:14.4167,d:"o"},
+    {n:"Anie",c:"Togo",lat:7.75,lon:1.2,d:"o"},
+    {n:"Whanganui",c:"New Zealand",lat:-39.9333,lon:175.05,d:"o"},
+    {n:"Khulm",c:"Afghanistan",lat:36.6974,lon:67.6983,d:"o"},
+    {n:"Zacatecoluca",c:"El Salvador",lat:13.5087,lon:-88.8702,d:"o"},
+    {n:"Dongola",c:"Sudan",lat:19.1816,lon:30.4769,d:"o"},
+    {n:"Al Hammam",c:"Egypt",lat:30.8453,lon:29.3882,d:"o"},
+    {n:"Baie-Mahault",c:"Guadeloupe",lat:16.2674,lon:-61.5854,d:"o"},
+    {n:"Eiras",c:"Portugal",lat:40.2483,lon:-8.4155,d:"o"},
+    {n:"It Ong",c:"Vietnam",lat:21.5175,lon:104.027,d:"o"},
+    {n:"Kowon-up",c:"North Korea",lat:39.4381,lon:127.2431,d:"o"},
+    {n:"Kollo",c:"Niger",lat:13.3043,lon:2.339,d:"o"},
+    {n:"Esmeralda",c:"Cuba",lat:21.8514,lon:-78.1172,d:"o"},
+    {n:"Sam Phran",c:"Thailand",lat:13.727,lon:100.2153,d:"o"},
+    {n:"Vallensbaek",c:"Denmark",lat:55.622,lon:12.3851,d:"o"},
+    {n:"Karoliniskes",c:"Lithuania",lat:54.6903,lon:25.219,d:"o"},
+    {n:"Boane",c:"Mozambique",lat:-26.0424,lon:32.3303,d:"o"},
+    {n:"Mariakani",c:"Kenya",lat:-3.8626,lon:39.4746,d:"o"},
+    {n:"Tome",c:"Chile",lat:-36.6176,lon:-72.9559,d:"o"},
+    {n:"Ze",c:"Benin",lat:6.7833,lon:2.3,d:"o"},
+    {n:"Poprad",c:"Slovakia",lat:49.0614,lon:20.298,d:"o"},
+    {n:"Gazojak",c:"Turkmenistan",lat:41.1875,lon:61.4036,d:"o"},
+    {n:"Santa Cruz de El Seibo",c:"Dominican Republic",lat:18.7648,lon:-69.0399,d:"o"},
+    {n:"Lincoln",c:"Argentina",lat:-34.8682,lon:-61.5293,d:"o"},
+    {n:"Minas de Marcona",c:"Peru",lat:-15.2119,lon:-75.1103,d:"o"},
+    {n:"Mafraq",c:"Jordan",lat:32.3429,lon:36.208,d:"o"},
+    {n:"Chiroqchi",c:"Uzbekistan",lat:39.0336,lon:66.5722,d:"o"},
+    {n:"So Uk",c:"Hong Kong",lat:22.3413,lon:114.1568,d:"o"},
+    {n:"Akonolinga",c:"Cameroon",lat:3.7667,lon:12.25,d:"o"},
+    {n:"Tindouf",c:"Algeria",lat:27.6711,lon:-8.1474,d:"o"},
+    {n:"Frenda",c:"Algeria",lat:35.0654,lon:1.0495,d:"o"},
+    {n:"Zayed City",c:"United Arab Emirates",lat:23.6542,lon:53.7052,d:"o"},
+    {n:"Carcavelos",c:"Portugal",lat:38.691,lon:-9.3221,d:"o"},
+    {n:"Anbyon-up",c:"North Korea",lat:39.0425,lon:127.5239,d:"o"},
+    {n:"Laukkai",c:"Myanmar",lat:23.6961,lon:98.7621,d:"o"},
+    {n:"Samtredia",c:"Georgia",lat:42.1537,lon:42.3352,d:"o"},
+    {n:"Oulmes",c:"Morocco",lat:33.4258,lon:-6.0014,d:"o"},
+    {n:"Okpo",c:"Myanmar",lat:16.9727,lon:96.0882,d:"o"},
+    {n:"Samphanthawong",c:"Thailand",lat:13.737,lon:100.512,d:"o"},
+    {n:"Fier",c:"Albania",lat:40.7251,lon:19.5582,d:"o"},
+    {n:"Aytos",c:"Bulgaria",lat:42.7032,lon:27.2546,d:"o"},
+    {n:"Pailin",c:"Cambodia",lat:12.849,lon:102.6093,d:"o"},
+    {n:"Al Qusais 1",c:"United Arab Emirates",lat:25.2793,lon:55.37,d:"o"},
+    {n:"Yby Yau",c:"Paraguay",lat:-22.9661,lon:-56.5407,d:"o"},
+    {n:"Zelino",c:"North Macedonia",lat:41.9803,lon:21.0642,d:"o"},
+    {n:"Ban Ang Sila",c:"Thailand",lat:13.3396,lon:100.9296,d:"o"},
+    {n:"Nsawam",c:"Ghana",lat:5.8089,lon:-0.3503,d:"o"},
+    {n:"Bangassou",c:"Central African Republic",lat:4.7413,lon:22.8184,d:"o"},
+    {n:"Dubasari",c:"Moldova",lat:47.2656,lon:29.1667,d:"o"},
+    {n:"Luhuan",c:"Macao",lat:22.1181,lon:113.5519,d:"o"},
+    {n:"Pogradec",c:"Albania",lat:40.9025,lon:20.6525,d:"o"},
+    {n:"Korinthos",c:"Greece",lat:37.9401,lon:22.9513,d:"o"},
+    {n:"Massiogo",c:"Mali",lat:10.3064,lon:-6.1097,d:"o"},
+    {n:"Colima",c:"Costa Rica",lat:9.9553,lon:-84.0823,d:"o"},
+    {n:"Discovery Park",c:"Hong Kong",lat:22.3762,lon:114.1114,d:"o"},
+    {n:"Kuala Belait",c:"Brunei",lat:4.5836,lon:114.2312,d:"o"},
+    {n:"Cua Nam",c:"Vietnam",lat:21.0212,lon:105.8523,d:"o"}
+  ];
+
+  const CITIES = CITY_DATA.map((c) => ({
+    name: c.n, country: c.c, lat: c.lat, lon: c.lon,
+    difficulty: c.d === "f" ? "famous" : "obscure",
+  }));
+
+  const CITIES_PER_ROUND = 5;
+  const MAX_ATTEMPTS = 3;
+  const BANDS = [
+    { miles: 100, points: 100, label: "Bullseye!", cls: "good" },
+    { miles: 500, points: 50, label: "Close!", cls: "ok" },
+    { miles: 1000, points: 10, label: "In the region", cls: "meh" },
+  ];
+
+  // ---- State ----
+  let map, guessMarker, truthMarker, lineLayer;
+  let deck = [];          // 5 cities for this round
+  let cityIndex = 0;      // 0-based
+  let attemptsUsed = 0;
+  let cityBest = 0;       // best points this city
+  let cityScored = false; // hit top band -> auto advance
+  let totalScore = 0;
+  let pendingLatLng = null;
+  let perCity = [];       // {name, points}
+  let difficulty = "famous"; // "famous" | "obscure" | "mixed"
+
+  const DIFFICULTY_LABEL = { famous: "Famous", obscure: "Obscure", mixed: "Mixed" };
+  function poolFor(diff) {
+    if (diff === "mixed") return CITIES;
+    return CITIES.filter((c) => c.difficulty === diff);
+  }
+
+  // ---- Geo helpers ----
+  function toRad(d) { return (d * Math.PI) / 180; }
+  function haversineMiles(a, b) {
+    const R = 3958.7613; // Earth radius in miles
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lon - a.lon);
+    const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
+    const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  function bearing(from, to) {
+    const lat1 = toRad(from.lat), lat2 = toRad(to.lat);
+    const dLon = toRad(to.lon - from.lon);
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1)*Math.sin(lat2) - Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+  const COMPASS = ["N","NE","E","SE","S","SW","W","NW"];
+  const ARROWS  = ["↑","↗","→","↘","↓","↙","←","↖"];
+  function compassIndex(brng) { return Math.round(brng / 45) % 8; }
+
+  function pointsForDistance(miles) {
+    for (const b of BANDS) if (miles <= b.miles) return b;
+    return { miles: Infinity, points: 0, label: "Way off", cls: "bad" };
+  }
+
+  // ---- DOM ----
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    round: $("roundVal"), city: $("cityVal"), score: $("scoreVal"), diff: $("diffVal"),
+    submit: $("submitBtn"), restart: $("restartBtn"),
+    promptCity: $("promptCity"), promptAttempts: $("promptAttempts"),
+    feedback: $("feedback"), fbArrow: $("fbArrow"),
+    fbHeadline: $("fbHeadline"), fbDetail: $("fbDetail"),
+    overlay: $("overlay"), card: $("overlayCard"),
+  };
+
+  // ---- Map setup ----
+  function initMap() {
+    map = L.map("map", {
+      worldCopyJump: true,
+      minZoom: 2,
+      maxBounds: [[-85, -200], [85, 200]],
+      maxBoundsViscosity: 0.6,
+    }).setView([20, 10], 2);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+      noWrap: false,
+    }).addTo(map);
+    map.on("click", onMapClick);
+  }
+
+  function onMapClick(e) {
+    if (cityScored || attemptsUsed >= MAX_ATTEMPTS) return;
+    pendingLatLng = { lat: e.latlng.lat, lon: ((e.latlng.lng + 540) % 360) - 180 };
+    if (!guessMarker) {
+      guessMarker = L.marker(e.latlng, { draggable: true }).addTo(map);
+      guessMarker.on("dragend", () => {
+        const p = guessMarker.getLatLng();
+        pendingLatLng = { lat: p.lat, lon: ((p.lng + 540) % 360) - 180 };
+      });
+    } else {
+      guessMarker.setLatLng(e.latlng);
+    }
+    els.submit.disabled = false;
+  }
+
+  // ---- Game flow ----
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function startGame(diff) {
+    if (diff) difficulty = diff;
+    deck = shuffle(poolFor(difficulty)).slice(0, CITIES_PER_ROUND);
+    cityIndex = 0;
+    totalScore = 0;
+    perCity = [];
+    els.score.textContent = "0";
+    els.diff.textContent = DIFFICULTY_LABEL[difficulty];
+    els.overlay.classList.add("hidden");
+    loadCity();
+  }
+
+  function clearMapLayers() {
+    if (guessMarker) { map.removeLayer(guessMarker); guessMarker = null; }
+    if (truthMarker) { map.removeLayer(truthMarker); truthMarker = null; }
+    if (lineLayer) { map.removeLayer(lineLayer); lineLayer = null; }
+  }
+
+  function loadCity() {
+    clearMapLayers();
+    attemptsUsed = 0;
+    cityBest = 0;
+    cityScored = false;
+    pendingLatLng = null;
+    els.submit.disabled = true;
+    hideFeedback();
+
+    const c = deck[cityIndex];
+    els.round.textContent = "1";
+    els.city.textContent = (cityIndex + 1) + " / " + CITIES_PER_ROUND;
+    els.promptCity.textContent = c.name + ", " + c.country;
+    renderAttempts();
+  }
+
+  function renderAttempts() {
+    let dots = "";
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      const cls = i < attemptsUsed ? "used" : "left";
+      dots += '<span class="dot ' + cls + '"></span>';
+    }
+    const left = MAX_ATTEMPTS - attemptsUsed;
+    els.promptAttempts.innerHTML =
+      dots + "&nbsp;&nbsp;" + left + " " + (left === 1 ? "try" : "tries") + " left" +
+      (cityBest > 0 ? '  ·  best: <span class="badge" style="background:var(--panel-2)">' + cityBest + " pts</span>" : "");
+  }
+
+  function showFeedback(arrow, headline, detail, cls) {
+    els.fbArrow.textContent = arrow;
+    els.fbHeadline.textContent = headline;
+    els.fbHeadline.style.color = cls ? "var(--" + cls + ")" : "var(--text)";
+    els.fbDetail.textContent = detail;
+    els.feedback.classList.remove("hidden");
+  }
+  function hideFeedback() { els.feedback.classList.add("hidden"); }
+
+  function submitGuess() {
+    if (!pendingLatLng || cityScored || attemptsUsed >= MAX_ATTEMPTS) return;
+    const truth = deck[cityIndex];
+    const dist = haversineMiles(pendingLatLng, truth);
+    const band = pointsForDistance(dist);
+    attemptsUsed++;
+    cityBest = Math.max(cityBest, band.points);
+
+    const brng = bearing(pendingLatLng, truth);
+    const ci = compassIndex(brng);
+    const miStr = Math.round(dist).toLocaleString() + " mi";
+
+    els.submit.disabled = true;
+    pendingLatLng = null;
+
+    if (band.points === 100) {
+      cityScored = true;
+      showFeedback("🎯", band.label + " +100", "You were " + miStr + " away.", band.cls);
+      renderAttempts();
+      finishCity();
+    } else if (attemptsUsed >= MAX_ATTEMPTS) {
+      const detail = band.points > 0
+        ? "Closest you got: " + miStr + ". Real city was " + COMPASS[ci] + " of your guess."
+        : miStr + " off. Real city was " + COMPASS[ci] + " of your guess.";
+      showFeedback(ARROWS[ci], band.points > 0 ? (band.label + " +" + band.points) : "Out of tries", detail, band.cls);
+      renderAttempts();
+      finishCity();
+    } else {
+      const hint = "Real city is " + miStr + " to the " + COMPASS[ci] + ". Try again!";
+      showFeedback(ARROWS[ci], band.points > 0 ? (band.label + " (+" + band.points + " so far)") : "Keep going",
+        hint, band.cls);
+      renderAttempts();
+    }
+  }
+
+  function finishCity() {
+    const truth = deck[cityIndex];
+    totalScore += cityBest;
+    els.score.textContent = totalScore.toLocaleString();
+    perCity.push({ name: truth.name + ", " + truth.country, points: cityBest });
+
+    // Reveal true location + line to last guess marker.
+    truthMarker = L.circleMarker([truth.lat, truth.lon], {
+      radius: 9, color: "#22c55e", weight: 3, fillColor: "#22c55e", fillOpacity: .5,
+    }).addTo(map).bindTooltip(truth.name, { permanent: true, direction: "top" });
+
+    if (guessMarker) {
+      const g = guessMarker.getLatLng();
+      lineLayer = L.polyline([[g.lat, g.lng], [truth.lat, truth.lon]], {
+        color: "#38bdf8", weight: 2, dashArray: "6 6",
+      }).addTo(map);
+      map.fitBounds(lineLayer.getBounds().pad(0.4));
+    } else {
+      map.setView([truth.lat, truth.lon], 4);
+    }
+
+    // Advance after a beat so the reveal is visible.
+    setTimeout(nextCity, 1900);
+  }
+
+  function nextCity() {
+    cityIndex++;
+    if (cityIndex >= CITIES_PER_ROUND) {
+      showResults();
+    } else {
+      map.setView([20, 10], 2);
+      loadCity();
+    }
+  }
+
+  function showResults() {
+    const max = CITIES_PER_ROUND * 100;
+    let lines = perCity.map(function (p) {
+      return '<div class="scoreline"><span class="name">' + p.name +
+        '</span><span>' + p.points + ' pts</span></div>';
+    }).join("");
+    let verdict = "Geography legend! 🌟";
+    if (totalScore < max * 0.3) verdict = "Room to roam. 🗺️";
+    else if (totalScore < max * 0.6) verdict = "Solid sense of place. 🧭";
+    else if (totalScore < max * 0.9) verdict = "Sharp navigator! ✈️";
+
+    els.card.innerHTML =
+      '<h1>Round <span class="hl">complete</span></h1>' +
+      '<div class="final"><div class="big">' + totalScore + '</div>' +
+      '<div style="color:var(--muted)">out of ' + max + ' (' + DIFFICULTY_LABEL[difficulty] + ') — ' + verdict + '</div></div>' +
+      lines +
+      '<div class="row mt">' +
+      '<button id="againBtn">Play again</button>' +
+      '<button id="changeBtn" class="ghost">Change mode</button>' +
+      '</div>';
+    els.overlay.classList.remove("hidden");
+    $("againBtn").onclick = function () { startGame(); };
+    $("changeBtn").onclick = showIntro;
+  }
+
+  function showIntro() {
+    els.card.innerHTML =
+      '<h1>🌍 City <span class="hl">Guesser</span></h1>' +
+      '<p>I name a city — you click the world map where you think it is. ' +
+      'You get <b>' + MAX_ATTEMPTS + ' tries</b> per city with distance &amp; direction hints. ' +
+      'Your best guess counts. <b>' + CITIES_PER_ROUND + ' cities</b> per round.</p>' +
+      '<ul class="rules">' +
+      '<li><span class="pts" style="color:var(--good)">100 pts</span> within 100 miles</li>' +
+      '<li><span class="pts" style="color:var(--ok)">50 pts</span> within 500 miles</li>' +
+      '<li><span class="pts" style="color:var(--meh)">10 pts</span> within 1000 miles</li>' +
+      '<li><span class="pts" style="color:var(--bad)">0 pts</span> farther than that</li>' +
+      '</ul>' +
+      '<div class="picklabel">Pick a difficulty to start</div>' +
+      '<div class="diffsel">' +
+      '<button class="diff" data-d="famous"><b>Famous</b><span>Big, well-known cities</span></button>' +
+      '<button class="diff" data-d="obscure"><b>Obscure</b><span>Small towns worldwide</span></button>' +
+      '<button class="diff" data-d="mixed"><b>Mixed</b><span>A bit of both</span></button>' +
+      '</div>';
+    els.overlay.classList.remove("hidden");
+    els.card.querySelectorAll("button.diff").forEach(function (b) {
+      b.onclick = function () { startGame(b.getAttribute("data-d")); };
+    });
+  }
+
+  // ---- Wire up ----
+  els.submit.onclick = submitGuess;
+  els.restart.onclick = showIntro;
+
+  initMap();
+  showIntro();
+})();
+</script>
+</body>
+</html>
