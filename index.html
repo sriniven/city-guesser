@@ -165,7 +165,6 @@
   <div class="stat"><span class="label">Mode</span><span class="value" id="diffVal">—</span></div>
   <div class="stat"><span class="label">Score</span><span class="value" id="scoreVal">0</span></div>
   <div class="spacer"></div>
-  <button id="submitBtn" disabled>Submit guess</button>
   <button id="restartBtn" class="ghost">Restart</button>
 </header>
 
@@ -725,7 +724,6 @@
   let cityBest = 0;       // best points this city
   let cityScored = false; // hit top band -> auto advance
   let totalScore = 0;
-  let pendingLatLng = null;
   let perCity = [];       // {name, points}
   let difficulty = "famous"; // "famous" | "obscure" | "mixed"
 
@@ -765,7 +763,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     round: $("roundVal"), city: $("cityVal"), score: $("scoreVal"), diff: $("diffVal"),
-    submit: $("submitBtn"), restart: $("restartBtn"),
+    restart: $("restartBtn"),
     promptCity: $("promptCity"), promptAttempts: $("promptAttempts"),
     feedback: $("feedback"), fbArrow: $("fbArrow"),
     fbHeadline: $("fbHeadline"), fbDetail: $("fbDetail"),
@@ -789,17 +787,13 @@
 
   function onMapClick(e) {
     if (cityScored || attemptsUsed >= MAX_ATTEMPTS) return;
-    pendingLatLng = { lat: e.latlng.lat, lon: ((e.latlng.lng + 540) % 360) - 180 };
     if (!guessMarker) {
-      guessMarker = L.marker(e.latlng, { draggable: true }).addTo(map);
-      guessMarker.on("dragend", () => {
-        const p = guessMarker.getLatLng();
-        pendingLatLng = { lat: p.lat, lon: ((p.lng + 540) % 360) - 180 };
-      });
+      guessMarker = L.marker(e.latlng).addTo(map);
     } else {
       guessMarker.setLatLng(e.latlng);
     }
-    els.submit.disabled = false;
+    const latlng = { lat: e.latlng.lat, lon: ((e.latlng.lng + 540) % 360) - 180 };
+    submitGuess(latlng);
   }
 
   // ---- Game flow ----
@@ -835,8 +829,6 @@
     attemptsUsed = 0;
     cityBest = 0;
     cityScored = false;
-    pendingLatLng = null;
-    els.submit.disabled = true;
     hideFeedback();
 
     const c = deck[cityIndex];
@@ -867,20 +859,17 @@
   }
   function hideFeedback() { els.feedback.classList.add("hidden"); }
 
-  function submitGuess() {
-    if (!pendingLatLng || cityScored || attemptsUsed >= MAX_ATTEMPTS) return;
+  function submitGuess(latlng) {
+    if (!latlng || cityScored || attemptsUsed >= MAX_ATTEMPTS) return;
     const truth = deck[cityIndex];
-    const dist = haversineMiles(pendingLatLng, truth);
+    const dist = haversineMiles(latlng, truth);
     const band = pointsForDistance(dist);
     attemptsUsed++;
     cityBest = Math.max(cityBest, band.points);
 
-    const brng = bearing(pendingLatLng, truth);
+    const brng = bearing(latlng, truth);
     const ci = compassIndex(brng);
     const miStr = Math.round(dist).toLocaleString() + " mi";
-
-    els.submit.disabled = true;
-    pendingLatLng = null;
 
     if (band.points === 100) {
       cityScored = true;
@@ -908,6 +897,12 @@
     els.score.textContent = totalScore.toLocaleString();
     perCity.push({ name: truth.name + ", " + truth.country, points: cityBest });
 
+    // Show running total now that this city is scored.
+    const lastCity = cityIndex + 1 >= CITIES_PER_ROUND;
+    els.fbDetail.textContent +=
+      "  ·  +" + cityBest + " this city  ·  Total: " + totalScore + " pts" +
+      (lastCity ? " — last city!" : "");
+
     // Reveal true location + line to last guess marker.
     truthMarker = L.circleMarker([truth.lat, truth.lon], {
       radius: 9, color: "#22c55e", weight: 3, fillColor: "#22c55e", fillOpacity: .5,
@@ -923,8 +918,9 @@
       map.setView([truth.lat, truth.lon], 4);
     }
 
-    // Advance after a beat so the reveal is visible.
-    setTimeout(nextCity, 1900);
+    // Pause on the reveal so the running total is readable, longer on the
+    // final city before the results screen.
+    setTimeout(nextCity, lastCity ? 3600 : 2600);
   }
 
   function nextCity() {
@@ -987,7 +983,6 @@
   }
 
   // ---- Wire up ----
-  els.submit.onclick = submitGuess;
   els.restart.onclick = showIntro;
 
   initMap();
