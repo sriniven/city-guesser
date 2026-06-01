@@ -994,14 +994,14 @@
       if (guessMarker) guessMarker.setLatLng(closestLatLng);
       const end = L.latLng(truth.lat, truth.lon);
       const revealBounds = L.latLngBounds([closestLatLng, end]).pad(0.4);
-      map.setView(revealBounds.getCenter(), map.getBoundsZoom(revealBounds) - 1);
+      const revealZoom = map.getBoundsZoom(revealBounds) - 1;
+      map.setView(revealBounds.getCenter(), revealZoom);
       animateLine(closestLatLng, end);
-      // After the line finishes drawing, fly out to a multi-country view.
       const mid = L.latLng((closestLatLng.lat + end.lat) / 2, (closestLatLng.lng + end.lng) / 2);
-      setTimeout(function () { map.flyTo(mid, 3, { duration: 1.4 }); }, 1100);
+      setTimeout(function () { map.flyTo(mid, revealZoom - 2, { duration: 1.4 }); }, 1100);
     } else {
       map.setView([truth.lat, truth.lon], 4);
-      setTimeout(function () { map.flyTo([truth.lat, truth.lon], 3, { duration: 1.4 }); }, 400);
+      setTimeout(function () { map.flyTo([truth.lat, truth.lon], 2, { duration: 1.4 }); }, 400);
     }
 
     // Pause on the reveal so the running total is readable, much longer on
