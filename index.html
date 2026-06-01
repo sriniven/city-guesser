@@ -93,7 +93,7 @@
 
   #feedback {
     position: absolute;
-    bottom: 210px;
+    bottom: 165px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 1000;
@@ -996,8 +996,12 @@
       const revealBounds = L.latLngBounds([closestLatLng, end]).pad(0.4);
       map.setView(revealBounds.getCenter(), map.getBoundsZoom(revealBounds) - 1);
       animateLine(closestLatLng, end);
+      // After the line finishes drawing, fly out to a multi-country view.
+      const mid = L.latLng((closestLatLng.lat + end.lat) / 2, (closestLatLng.lng + end.lng) / 2);
+      setTimeout(function () { map.flyTo(mid, 3, { duration: 1.4 }); }, 1100);
     } else {
       map.setView([truth.lat, truth.lon], 4);
+      setTimeout(function () { map.flyTo([truth.lat, truth.lon], 3, { duration: 1.4 }); }, 400);
     }
 
     // Pause on the reveal so the running total is readable, much longer on
