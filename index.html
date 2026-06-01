@@ -890,6 +890,7 @@
 
   function loadCity() {
     clearMapLayers();
+    map.setView([20, 10], 2);
     attemptsUsed = 0;
     cityBest = 0;
     cityScored = false;
@@ -992,7 +993,8 @@
     if (closestLatLng) {
       if (guessMarker) guessMarker.setLatLng(closestLatLng);
       const end = L.latLng(truth.lat, truth.lon);
-      map.fitBounds(L.latLngBounds([closestLatLng, end]).pad(0.4));
+      const revealBounds = L.latLngBounds([closestLatLng, end]).pad(0.4);
+      map.setView(revealBounds.getCenter(), map.getBoundsZoom(revealBounds) - 1);
       animateLine(closestLatLng, end);
     } else {
       map.setView([truth.lat, truth.lon], 4);
@@ -1018,7 +1020,6 @@
     if (cityIndex >= CITIES_PER_ROUND) {
       showResults();
     } else {
-      map.setView([20, 10], 2);
       loadCity();
     }
   }
